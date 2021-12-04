@@ -128,9 +128,9 @@ local function on_attach(client, bufnr)
 end
 
 local function on_publish_diagnostics_wapper(func)
-  return function(a,b,c,d)
-    on_publish_diagnostics(a,b,c,d)
-    func(a,b,c,d)
+  return function(...)
+    on_publish_diagnostics(...)
+    func(...)
   end
 end
 
