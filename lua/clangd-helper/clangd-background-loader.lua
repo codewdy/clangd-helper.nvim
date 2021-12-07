@@ -1,7 +1,7 @@
 local utils = require("clangd-helper/utils")
 
 local config = {
-  thread_num = 5,
+  thread_num = 64,
   configure_file = '.root'
 }
 
@@ -11,6 +11,18 @@ local file_handler = {
 local handled_client = {
 }
 
+local function add_callback(handler_name, handler)
+  if file_handler[handler_name] ~= nil then
+    handler()
+  else
+    file_handler[handler_name] = handler
+  end
+end
+
+local function cancel_callback(handler_name)
+  file_handler[handler_name] = "handled"
+end
+
 local function load_processor(processor_args)
   local idx = processor_args.ptr
   if idx > #processor_args.filelist then
@@ -19,7 +31,7 @@ local function load_processor(processor_args)
   processor_args.ptr = idx + 1
   local filename = processor_args.filelist[idx]
   local client_id = processor_args.client_id
-  utils.async_read(filename, function (err, data)
+  utils.async_read(filename, vim.schedule_wrap(function (err, data)
     if err ~= nil then
       processor_args.error = processor_args.error + 1
       print("Processing:", processor_args.processed, '/', processor_args.error, '/', #processor_args.filelist)
@@ -27,11 +39,11 @@ local function load_processor(processor_args)
       return
     end
     local handler_name = tostring(client_id) .. ':file://' .. filename
-    file_handler[handler_name] = function()
+    add_callback(handler_name, vim.schedule_wrap(function()
       processor_args.processed = processor_args.processed + 1
       print("Processing:", processor_args.processed, '/', processor_args.error, '/', #processor_args.filelist, '\n')
       load_processor(processor_args)
-    end
+    end))
     local client = vim.lsp.get_client_by_id(client_id)
     local params = {
       textDocument = {
@@ -41,10 +53,10 @@ local function load_processor(processor_args)
         text = data
       }
     }
-    if client.notify('textDocument/didOpen', params) then
-      file_handler[handler_name] = nil
+    if not client.notify('textDocument/didOpen', params) then
+      cancel_callback(handler_name)
     end
-  end)
+  end))
 end
 
 local function handle_client(client)
@@ -115,10 +127,10 @@ local function on_publish_diagnostics(_, result, ctx, config)
 
   local handler_name = tostring(client_id) .. ':' .. uri
 
-  local hanlder = file_handler[handler_name]
-  file_handler[handler_name] = nil
+  local handler = file_handler[handler_name]
+  file_handler[handler_name] = "handled"
 
-  if hanlder ~= nil then
+  if type(handler) == "function" then
     handler()
   end
 end
